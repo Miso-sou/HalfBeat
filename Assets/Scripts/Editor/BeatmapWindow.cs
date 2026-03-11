@@ -27,43 +27,31 @@ public class BeatmapWindow : EditorWindow
         EditorApplication.update += OnEditorUpdate;
     }
 
+    private bool isPlaying = false;
+    private double lastUpdateTime;
+
     private void OnDisable()
     {
         EditorApplication.update -= OnEditorUpdate;
         StopAudio();
     }
 
-    // Helper to safely invoke internal Unity audio preview methods
-    private object InvokeAudioUtilMethod(string methodName, params object[] args)
-    {
-        var type = typeof(AudioImporter).Assembly.GetType("UnityEditor.AudioUtil");
-        if (type == null) return null;
-        
-        var methods = type.GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-        foreach (var m in methods)
-        {
-            if (m.Name == methodName && m.GetParameters().Length == args.Length)
-            {
-                return m.Invoke(null, args);
-            }
-        }
-        return null; // Method not found or args length mismatch
-    }
-
     private void OnEditorUpdate()
     {
-        if (selectedLevel == null || selectedLevel.songInfo == null) return;
-        
-        bool isPlaying = (bool?)InvokeAudioUtilMethod("IsClipPlaying", selectedLevel.songInfo) ?? false;
-        
-        if (isPlaying)
+        if (isPlaying && selectedLevel != null && selectedLevel.songInfo != null)
         {
-            float? curPos = (float?)InvokeAudioUtilMethod("GetClipPosition", selectedLevel.songInfo);
-            if (curPos != null)
+            double currentEditorTime = EditorApplication.timeSinceStartup;
+            float deltaTime = (float)(currentEditorTime - lastUpdateTime);
+            lastUpdateTime = currentEditorTime;
+
+            scrubPosition += deltaTime;
+
+            if (scrubPosition >= selectedLevel.songInfo.length)
             {
-                scrubPosition = curPos.Value;
-                Repaint();
+                scrubPosition = selectedLevel.songInfo.length;
+                StopAudio();
             }
+            Repaint();
         }
     }
 
@@ -71,35 +59,46 @@ public class BeatmapWindow : EditorWindow
     {
         if (selectedLevel == null || selectedLevel.songInfo == null) return;
         
+        isPlaying = true;
+        lastUpdateTime = EditorApplication.timeSinceStartup;
+        
+        // Brute-force audio playing in editor by instantiating a temporary AudioSource 
+        // and telling Unity to not destroy it when the editor changes state
         if (previewObject == null)
         {
-            previewObject = new GameObject("BeatmapAudioPreview");
-            previewObject.hideFlags = HideFlags.HideAndDontSave;
+            previewObject = EditorUtility.CreateGameObjectWithHideFlags("BeatmapAudioPreview", HideFlags.HideAndDontSave);
             previewSource = previewObject.AddComponent<AudioSource>();
         }
         
-        if (previewSource.clip != selectedLevel.songInfo)
+        previewSource.clip = selectedLevel.songInfo;
+        previewSource.spatialBlend = 0f;
+        previewSource.time = scrubPosition;
+        
+        // This is the key to hearing audio without moving to Play Mode in modern Unity
+        previewSource.playOnAwake = false;
+        previewSource.loop = false;
+        
+        // Attempt to play it via reflection first, if it fails, our manual scrubber still moves the timeline visually!
+        var type = typeof(AudioImporter).Assembly.GetType("UnityEditor.AudioUtil");
+        if (type != null)
         {
-            previewSource.clip = selectedLevel.songInfo;
-        }
-        
-        // This reflection call plays the audio directly through the Unity Editor backend exactly at the timeline position
-        int samplePos = Mathf.RoundToInt(scrubPosition * previewSource.clip.frequency);
-        
-        // Try Unity 2020+ signature (Clip, StartSample, Loop)
-        object result = InvokeAudioUtilMethod("PlayPreviewClip", previewSource.clip, samplePos, false);
-        
-        // If the 3 argument version fails, try the older 1 argument version and set position separately
-        if (result == null && InvokeAudioUtilMethod("PlayPreviewClip", previewSource.clip) != null)
-        {
-            InvokeAudioUtilMethod("SetClipSamplePosition", previewSource.clip, samplePos);
+            var playPreview = type.GetMethod("PlayPreviewClip", new System.Type[] { typeof(AudioClip), typeof(int), typeof(bool) });
+            if (playPreview != null) playPreview.Invoke(null, new object[] { previewSource.clip, Mathf.RoundToInt(scrubPosition * previewSource.clip.frequency), false });
         }
     }
 
     private void StopAudio()
     {
-        InvokeAudioUtilMethod("StopAllPreviewClips");
-        if (previewSource != null) previewSource.Pause();
+        isPlaying = false;
+        
+        var type = typeof(AudioImporter).Assembly.GetType("UnityEditor.AudioUtil");
+        if (type != null)
+        {
+            var stopAll = type.GetMethod("StopAllPreviewClips", new System.Type[0]);
+            if (stopAll != null) stopAll.Invoke(null, null);
+        }
+        
+        if (previewSource != null) previewSource.Stop();
     }
     
     private void OnGUI()
@@ -160,12 +159,6 @@ public class BeatmapWindow : EditorWindow
         EditorGUILayout.BeginVertical(GUI.skin.box);
         GUILayout.Label("Interactive Timeline", EditorStyles.boldLabel);
         
-        bool isPlaying = false;
-        if (selectedLevel != null && selectedLevel.songInfo != null)
-        {
-            isPlaying = (bool?)InvokeAudioUtilMethod("IsClipPlaying", selectedLevel.songInfo) ?? false;
-        }
-        
         float clipLength = selectedLevel.songInfo != null ? selectedLevel.songInfo.length : 100f;
         
         GUILayout.BeginHorizontal();
@@ -180,10 +173,27 @@ public class BeatmapWindow : EditorWindow
         scrubPosition = GUILayout.HorizontalSlider(scrubPosition, 0f, clipLength, GUILayout.ExpandWidth(true));
         if (EditorGUI.EndChangeCheck() && !isPlaying)
         {
-            // Just move the visual scrubber position, don't auto-play
+            // Slider moved while paused - keep new value
         }
         
-        GUILayout.Label($"{scrubPosition:F2} / {clipLength:F2}s", GUILayout.Width(80));
+        // Editable time field - type an exact second and press Enter to jump there
+        EditorGUI.BeginChangeCheck();
+        float typedTime = EditorGUILayout.DelayedFloatField(scrubPosition, GUILayout.Width(60));
+        if (EditorGUI.EndChangeCheck())
+        {
+            scrubPosition = Mathf.Clamp(typedTime, 0f, clipLength);
+        }
+        GUILayout.Label($"/ {clipLength:F2}s", GUILayout.Width(60));
+        GUILayout.EndHorizontal();
+        
+        // Quick-add button row
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Jump to:", GUILayout.Width(55));
+        if (GUILayout.Button("0s", GUILayout.Width(35))) scrubPosition = 0f;
+        if (GUILayout.Button("-1s", GUILayout.Width(35))) scrubPosition = Mathf.Max(0f, scrubPosition - 1f);
+        if (GUILayout.Button("+1s", GUILayout.Width(35))) scrubPosition = Mathf.Min(clipLength, scrubPosition + 1f);
+        if (GUILayout.Button("-0.1", GUILayout.Width(40))) scrubPosition = Mathf.Max(0f, scrubPosition - 0.1f);
+        if (GUILayout.Button("+0.1", GUILayout.Width(40))) scrubPosition = Mathf.Min(clipLength, scrubPosition + 0.1f);
         GUILayout.EndHorizontal();
 
         // Optional spacebar shortcut to just drop a random cube quickly
