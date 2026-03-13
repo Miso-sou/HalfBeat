@@ -23,13 +23,29 @@ public class BeatSpawner : MonoBehaviour
     public Material redCubeMaterial;
     public Material blueCubeMaterial;
 
+    private int totalBlocks;
+    /// <summary>Cubes spawned this run that are still in play (not hit/missed yet).</summary>
+    private int outstandingCubes;
+    private Dictionary<string, int> missCounters = new Dictionary<string, int>();
+    private bool levelCompleteShown;
+
     void Start()
     {
+        nextBlockIndex = 0;
+        levelCompleteShown = false;
+        outstandingCubes = 0;
+
+        if (currentLevel != null)
+        {
+            totalBlocks = (currentLevel.blocks != null) ? currentLevel.blocks.Count : 0;
+            missCounters.Clear();
+        }
+
         if (currentLevel != null && beatMusic != null && currentLevel.songInfo != null)
         {
             beatMusic.clip = currentLevel.songInfo;
-            beatMusic.spatialBlend = 0f; // Force 2D audio
-            beatMusic.Play(); 
+            beatMusic.spatialBlend = 0f;
+            beatMusic.Play();
         }
     }
 
@@ -52,6 +68,69 @@ public class BeatSpawner : MonoBehaviour
             SpawnCube(currentLevel.blocks[nextBlockIndex]);
             nextBlockIndex++; // Move to the next block in the list
         }
+    }
+
+    /// <summary>
+    /// Called by BeatCube when it is successfully hit by the saber.
+    /// When all blocks have been hit at least once, we show the level-finished UI.
+    /// </summary>
+    public void OnBlockHit()
+    {
+        if (outstandingCubes <= 0)
+            return;
+        outstandingCubes--;
+        TryCompleteLevel();
+    }
+
+    public void OnBlockMissed(string name)
+    {
+        if (outstandingCubes <= 0)
+            return;
+
+        string key = string.IsNullOrEmpty(name) ? "(unnamed)" : name;
+        if (missCounters.ContainsKey(key))
+            missCounters[key]++;
+        else
+            missCounters[key] = 1;
+
+        Debug.Log($"[Miss] \"{key}\" missed! (total misses for this name: {missCounters[key]})");
+
+        outstandingCubes--;
+        TryCompleteLevel();
+    }
+
+    /// <summary>
+    /// Level ends only after every beatmap block has spawned AND every spawned cube has been hit or missed.
+    /// Avoids instant "level finished" from stray cubes or wrong remaining-block math at start.
+    /// </summary>
+    private void TryCompleteLevel()
+    {
+        if (levelCompleteShown || currentLevel == null || currentLevel.blocks == null)
+            return;
+
+        bool allSpawned = nextBlockIndex >= currentLevel.blocks.Count;
+        if (!allSpawned || outstandingCubes > 0)
+            return;
+
+        levelCompleteShown = true;
+
+        Debug.Log("========== LEVEL FINISHED ==========");
+        if (missCounters.Count == 0)
+        {
+            Debug.Log("Perfect run! No misses.");
+        }
+        else
+        {
+            Debug.Log($"Missed {missCounters.Count} unique cube name(s):");
+            foreach (var kvp in missCounters)
+                Debug.Log($"  \"{kvp.Key}\" — missed {kvp.Value} time(s)");
+        }
+        Debug.Log("=====================================");
+
+        if (EndLevelUI.Instance != null)
+            EndLevelUI.Instance.ShowLevelFinished();
+        else
+            Debug.LogWarning("[BeatSpawner] EndLevelUI.Instance is null — add an active EndLevelUI in the scene and assign Level Finished Text.");
     }
 
     void SpawnCube(BeatData data)
@@ -104,9 +183,9 @@ public class BeatSpawner : MonoBehaviour
         if (cubeScript != null)
         {
             cubeScript.requiredColor = data.color;
-            cubeScript.moveSpeed = cubeMoveSpeed; // Force it to use the exact speed we calculated travel time with!
+            cubeScript.moveSpeed = cubeMoveSpeed;
+            cubeScript.cubeName = data.cubeName;
             
-            // If they picked "Any", we could tell the script to accept any swing angle (optional)
             if (data.direction == CutDirection.Any) cubeScript.ignoreDirectionRequirement = true;
         }
 
@@ -117,5 +196,6 @@ public class BeatSpawner : MonoBehaviour
 
         // Parent it to the spawner for a clean hierarchy
         newCubeObj.transform.SetParent(this.transform);
+        outstandingCubes++;
     }
 }

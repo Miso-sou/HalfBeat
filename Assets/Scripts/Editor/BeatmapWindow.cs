@@ -18,6 +18,7 @@ public class BeatmapWindow : EditorWindow
     // Paint Tools
     private SaberColor paintColor = SaberColor.Red;
     private CutDirection paintDirection = CutDirection.Any;
+    private string paintCubeName = "";
 
     private Vector2 scrollPos;
 
@@ -217,6 +218,7 @@ public class BeatmapWindow : EditorWindow
         EditorGUILayout.BeginVertical(GUI.skin.box);
         GUILayout.Label("1. Choose Paint Tools", EditorStyles.boldLabel);
 
+        paintCubeName  = EditorGUILayout.TextField("Cube Name:", paintCubeName);
         GUILayout.BeginHorizontal();
         paintColor     = (SaberColor)EditorGUILayout.EnumPopup("Block Color:", paintColor);
         paintDirection = (CutDirection)EditorGUILayout.EnumPopup("Cut Direction:", paintDirection);
@@ -264,6 +266,7 @@ public class BeatmapWindow : EditorWindow
     {
         BeatData newData = new BeatData
         {
+            cubeName  = paintCubeName,
             spawnTime = spawnTime,
             color     = paintColor,
             position  = position,
@@ -299,6 +302,7 @@ public class BeatmapWindow : EditorWindow
             bool timeChanged = EditorGUI.EndChangeCheck();
 
             EditorGUI.BeginChangeCheck();
+            data.cubeName  = EditorGUILayout.TextField(data.cubeName, GUILayout.Width(80));
             data.color     = (SaberColor)EditorGUILayout.EnumPopup(data.color,     GUILayout.Width(55));
             data.position  = (GridPos)EditorGUILayout.EnumPopup(data.position,     GUILayout.Width(100));
             data.direction = (CutDirection)EditorGUILayout.EnumPopup(data.direction, GUILayout.Width(90));

@@ -10,6 +10,7 @@ public class BeatCube : MonoBehaviour
     public float moveSpeed = 5f;
     public float missedZThreshold = -0.1f; // The Z coordinate where the cube gives up and disappears
     public bool ignoreDirectionRequirement = false; // Used for "Any" direction dot blocks
+    [HideInInspector] public string cubeName;
     
     [Header("Slicing Effect Tuning")]
     public Vector3 slicedPieceOffset = new Vector3(0.5f, 0.5f, 0f); // Where do the pieces instantly teleport to relative to the center?
@@ -42,10 +43,15 @@ public class BeatCube : MonoBehaviour
         {
             if (!hasBeenCut)
             {
-                // We missed the block! Break the combo string
                 if (ScoreManager.Instance != null)
                 {
                     ScoreManager.Instance.BreakCombo();
+                }
+
+                BeatSpawner spawner = GetComponentInParent<BeatSpawner>();
+                if (spawner != null)
+                {
+                    spawner.OnBlockMissed(cubeName);
                 }
             }
             Destroy(gameObject);
@@ -198,6 +204,13 @@ public class BeatCube : MonoBehaviour
         }
 
         // Destroy the original, untouched cube
+        // Notify the spawner that this block was successfully hit
+        BeatSpawner spawner = GetComponentInParent<BeatSpawner>();
+        if (spawner != null)
+        {
+            spawner.OnBlockHit();
+        }
+
         Destroy(gameObject);
     }
 }

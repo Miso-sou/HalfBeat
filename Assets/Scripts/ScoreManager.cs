@@ -75,8 +75,6 @@ public class ScoreManager : MonoBehaviour
         }
 
         UpdateUI();
-        
-        Debug.Log("[Score] Combo Broke!");
     }
 
     private int GetMultiplierIndex(int multiplier)

@@ -21,6 +21,7 @@ public enum CutDirection
 [System.Serializable]
 public struct BeatData
 {
+    public string cubeName;
     [Tooltip("The exact second the cube reaches the player")]
     public float spawnTime; 
     public SaberColor color;
