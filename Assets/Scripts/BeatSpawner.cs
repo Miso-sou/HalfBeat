@@ -27,6 +27,7 @@ public class BeatSpawner : MonoBehaviour
     /// <summary>Cubes spawned this run that are still in play (not hit/missed yet).</summary>
     private int outstandingCubes;
     private Dictionary<string, int> missCounters = new Dictionary<string, int>();
+    private Dictionary<string, int> hitCounters  = new Dictionary<string, int>();
     private bool levelCompleteShown;
 
     void Start()
@@ -39,6 +40,7 @@ public class BeatSpawner : MonoBehaviour
         {
             totalBlocks = (currentLevel.blocks != null) ? currentLevel.blocks.Count : 0;
             missCounters.Clear();
+            hitCounters.Clear();
         }
 
         if (currentLevel != null && beatMusic != null && currentLevel.songInfo != null)
@@ -74,10 +76,17 @@ public class BeatSpawner : MonoBehaviour
     /// Called by BeatCube when it is successfully hit by the saber.
     /// When all blocks have been hit at least once, we show the level-finished UI.
     /// </summary>
-    public void OnBlockHit()
+    public void OnBlockHit(string name)
     {
         if (outstandingCubes <= 0)
             return;
+
+        string key = string.IsNullOrEmpty(name) ? "(unnamed)" : name;
+        if (hitCounters.ContainsKey(key))
+            hitCounters[key]++;
+        else
+            hitCounters[key] = 1;
+
         outstandingCubes--;
         TryCompleteLevel();
     }
@@ -114,16 +123,29 @@ public class BeatSpawner : MonoBehaviour
 
         levelCompleteShown = true;
 
+        // Collect every cube name that appeared in either counter
+        var allKeys = new System.Collections.Generic.HashSet<string>(missCounters.Keys);
+        foreach (var k in hitCounters.Keys) allKeys.Add(k);
+
         Debug.Log("========== LEVEL FINISHED ==========");
         if (missCounters.Count == 0)
         {
             Debug.Log("Perfect run! No misses.");
+            foreach (var key in allKeys)
+            {
+                int hits  = hitCounters.ContainsKey(key)  ? hitCounters[key]  : 0;
+                Debug.Log($"  \"{key}\" — total: {hits}  |  hits: {hits}  |  misses: 0");
+            }
         }
         else
         {
-            Debug.Log($"Missed {missCounters.Count} unique cube name(s):");
-            foreach (var kvp in missCounters)
-                Debug.Log($"  \"{kvp.Key}\" — missed {kvp.Value} time(s)");
+            foreach (var key in allKeys)
+            {
+                int hits   = hitCounters.ContainsKey(key)  ? hitCounters[key]  : 0;
+                int misses = missCounters.ContainsKey(key) ? missCounters[key] : 0;
+                int total  = hits + misses;
+                Debug.Log($"  \"{key}\" — total: {total}  |  hits: {hits}  |  misses: {misses}");
+            }
         }
         Debug.Log("=====================================");
 

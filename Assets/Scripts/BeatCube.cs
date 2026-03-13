@@ -208,7 +208,7 @@ public class BeatCube : MonoBehaviour
         BeatSpawner spawner = GetComponentInParent<BeatSpawner>();
         if (spawner != null)
         {
-            spawner.OnBlockHit();
+            spawner.OnBlockHit(cubeName);
         }
 
         Destroy(gameObject);
