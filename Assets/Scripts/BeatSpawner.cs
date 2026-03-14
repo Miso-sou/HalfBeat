@@ -1,8 +1,13 @@
 using System.Collections.Generic;
+using System.IO; // Required for file reading and writing
 using UnityEngine;
 
 public class BeatSpawner : MonoBehaviour
 {
+    [Header("Player Tracking")]
+    [Tooltip("Enter the player's name to record their misses in the Excel sheet.")]
+    public string playerName = "Player 1";
+
     [Header("Level Asset")]
     [Tooltip("Drag the Beatmap Asset you created here!")]
     public BeatmapAsset currentLevel;
@@ -74,7 +79,6 @@ public class BeatSpawner : MonoBehaviour
 
     /// <summary>
     /// Called by BeatCube when it is successfully hit by the saber.
-    /// When all blocks have been hit at least once, we show the level-finished UI.
     /// </summary>
     public void OnBlockHit(string name)
     {
@@ -110,7 +114,6 @@ public class BeatSpawner : MonoBehaviour
 
     /// <summary>
     /// Level ends only after every beatmap block has spawned AND every spawned cube has been hit or missed.
-    /// Avoids instant "level finished" from stray cubes or wrong remaining-block math at start.
     /// </summary>
     private void TryCompleteLevel()
     {
@@ -131,11 +134,6 @@ public class BeatSpawner : MonoBehaviour
         if (missCounters.Count == 0)
         {
             Debug.Log("Perfect run! No misses.");
-            foreach (var key in allKeys)
-            {
-                int hits  = hitCounters.ContainsKey(key)  ? hitCounters[key]  : 0;
-                Debug.Log($"  \"{key}\" — total: {hits}  |  hits: {hits}  |  misses: 0");
-            }
         }
         else
         {
@@ -149,10 +147,124 @@ public class BeatSpawner : MonoBehaviour
         }
         Debug.Log("=====================================");
 
-        if (EndLevelUI.Instance != null)
-            EndLevelUI.Instance.ShowLevelFinished();
-        else
-            Debug.LogWarning("[BeatSpawner] EndLevelUI.Instance is null — add an active EndLevelUI in the scene and assign Level Finished Text.");
+        // --- Export data to CSV Matrix ---
+        SaveMissLogsToExcel();
+
+        // If you have an EndLevelUI script, it gets called here.
+        // If not, it just prints the warning below.
+        // if (EndLevelUI.Instance != null)
+        //     EndLevelUI.Instance.ShowLevelFinished();
+        // else
+        //     Debug.LogWarning("[BeatSpawner] EndLevelUI.Instance is null.");
+    }
+
+    /// <summary>
+    /// Reads existing CSV, updates the player's row with new miss data, 
+    /// dynamically creates new columns for new cube names, and rewrites the file.
+    /// </summary>
+    private void SaveMissLogsToExcel()
+    {
+        if (missCounters.Count == 0) return; // Skip if perfect run (optional)
+
+        string filePath = Application.persistentDataPath + "/PlayerMissMatrix.csv";
+        string safePlayerName = string.IsNullOrEmpty(playerName) ? "Unknown" : playerName.Replace(",", "");
+
+        // 1. Setup dictionaries to hold our grid data in memory
+        Dictionary<string, Dictionary<string, int>> allData = new Dictionary<string, Dictionary<string, int>>();
+        List<string> allCubeNames = new List<string>();
+
+        // 2. Read existing file to remember previous players and columns
+        if (File.Exists(filePath))
+        {
+            string[] lines = File.ReadAllLines(filePath);
+            if (lines.Length > 0)
+            {
+                // Parse the top row (Headers)
+                string[] headers = lines[0].Split(',');
+                for (int i = 1; i < headers.Length; i++) 
+                {
+                    if (!allCubeNames.Contains(headers[i]))
+                        allCubeNames.Add(headers[i]);
+                }
+
+                // Parse the player rows
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    string[] cols = lines[i].Split(',');
+                    if (cols.Length > 0)
+                    {
+                        string pName = cols[0];
+                        allData[pName] = new Dictionary<string, int>();
+                        
+                        // Fill in their previous misses
+                        for (int j = 1; j < cols.Length && j < headers.Length; j++)
+                        {
+                            if (int.TryParse(cols[j], out int count))
+                            {
+                                allData[pName][headers[j]] = count;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Add the current run's data for the active player
+        if (!allData.ContainsKey(safePlayerName))
+        {
+            allData[safePlayerName] = new Dictionary<string, int>();
+        }
+
+        foreach (var kvp in missCounters)
+        {
+            string safeBlockName = kvp.Key.Replace(",", "");
+            
+            // If this is a cube no one has missed before, add it as a new column
+            if (!allCubeNames.Contains(safeBlockName))
+            {
+                allCubeNames.Add(safeBlockName);
+            }
+
+            // Accumulate misses (if they play multiple times, this adds to their total)
+            if (allData[safePlayerName].ContainsKey(safeBlockName))
+            {
+                allData[safePlayerName][safeBlockName] += kvp.Value; 
+            }
+            else
+            {
+                allData[safePlayerName][safeBlockName] = kvp.Value;
+            }
+        }
+
+        // 4. Overwrite the file with the brand new grid
+        using (StreamWriter writer = new StreamWriter(filePath, false)) // false = overwrite
+        {
+            // Write Header Row (Player Name, Cube1, Cube2, etc.)
+            string headerLine = "Player Name";
+            foreach (string cube in allCubeNames)
+            {
+                headerLine += "," + cube;
+            }
+            writer.WriteLine(headerLine);
+
+            // Write Data Rows for every player
+            foreach (var player in allData.Keys)
+            {
+                string rowLine = player;
+                foreach (string cube in allCubeNames)
+                {
+                    int count = 0;
+                    if (allData[player].ContainsKey(cube))
+                    {
+                        count = allData[player][cube];
+                    }
+                    rowLine += "," + count; // Fills 0 if they never missed this specific cube
+                }
+                writer.WriteLine(rowLine);
+            }
+        }
+
+        Debug.Log($"<color=green>[Excel Log]</color> Matrix successfully saved to: {filePath}");
     }
 
     void SpawnCube(BeatData data)
@@ -160,7 +272,6 @@ public class BeatSpawner : MonoBehaviour
         if (beatCubePrefab == null) return;
 
         // 1. Convert GridPos enum to actual X/Y coordinates 
-        // Beat Saber standard paths range from X: -0.9 to 0.9, and Y: 0.1 to 1.3
         Vector3 spawnOffset = Vector3.zero;
         string posName = data.position.ToString();
         
@@ -178,7 +289,6 @@ public class BeatSpawner : MonoBehaviour
         Vector3 finalSpawnPos = customSpawnOrigin + spawnOffset;
 
         // 2. Convert CutDirection enum to an exact Z-axis rotation angle
-        // 0 = cut down. 180 = cut up. 90 = cut right. -90 = cut left.
         float zRot = 0;
         switch (data.direction)
         {
