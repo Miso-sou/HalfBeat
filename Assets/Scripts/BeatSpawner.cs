@@ -8,6 +8,8 @@ public class BeatSpawner : MonoBehaviour
     [Tooltip("Enter the player's name to record their misses in the Excel sheet.")]
     public string playerName = "Player 1";
 
+    // public GameObject EndLevelUI;
+
     [Header("Level Asset")]
     [Tooltip("Drag the Beatmap Asset you created here!")]
     public BeatmapAsset currentLevel;
@@ -23,6 +25,7 @@ public class BeatSpawner : MonoBehaviour
 
     [Header("Cube Prefab")]
     public GameObject beatCubePrefab; 
+    
     
     [Header("Visuals (Materials)")]
     public Material redCubeMaterial;
@@ -152,10 +155,10 @@ public class BeatSpawner : MonoBehaviour
 
         // If you have an EndLevelUI script, it gets called here.
         // If not, it just prints the warning below.
-        // if (EndLevelUI.Instance != null)
-        //     EndLevelUI.Instance.ShowLevelFinished();
-        // else
-        //     Debug.LogWarning("[BeatSpawner] EndLevelUI.Instance is null.");
+        if (EndLevelUI.Instance != null)
+            EndLevelUI.Instance.ShowLevelFinished();
+        else
+            Debug.LogWarning("[BeatSpawner] EndLevelUI.Instance is null.");
     }
 
     /// <summary>
