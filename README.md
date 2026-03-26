@@ -1,11 +1,3 @@
-<![CDATA[# HalfBeat — One-Handed VR Rhythm Game & Accessibility Toolkit
-
-> **Making VR rhythm games playable with a single functional arm.**
-
-HalfBeat is a Beat Saber–style VR rhythm game built in **Unity** with a first-class **XR Accessibility Manager** that enables people who have a single functional arm to enjoy gameplay that normally requires two hands. Beyond the game itself, `XRAccessibilityManager.cs` is designed as a **drop-in developer toolkit** — any Unity XR project can integrate the script to instantly add one-handed accessibility support.
-
----
-
 ## Table of Contents
 
 - [Why HalfBeat Exists](#why-halfbeat-exists)
